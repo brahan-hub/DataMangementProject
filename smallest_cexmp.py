@@ -148,8 +148,69 @@ def create_toy_database():
     return conn
 
 
-def init_student_queries():
+def create_random_student_dataset():
+    conn = sqlite3.connect(":memory:")  # Use in-memory DB for testing
+    cursor = conn.cursor()
+
+    num_students = int(input("Enter number of students: "))
+    num_registrations = int(input("Enter number of registrations: "))
+
+    # Create tables
+    cursor.execute("""CREATE TABLE Student (
+                        name TEXT PRIMARY KEY,
+                        major TEXT);""")
+
+    cursor.execute("""CREATE TABLE Registration (
+                        name TEXT,
+                        course TEXT,
+                        dept TEXT,
+                        grade INTEGER,
+                        FOREIGN KEY(name) REFERENCES Student(name));""")
+
+    # Generate random student names
+    student_names = [f"Student_{i}" for i in range(num_students)]
+    majors = ["CS", "ECON", "MATH", "BIO"]
+    students = [(name, random.choice(majors)) for name in student_names]
+    cursor.executemany("INSERT INTO Student (name, major) VALUES (?, ?);", students)
+
+    # Generate random registrations
+    courses = ["101", "202", "303", "404", "216", "230", "316", "330"]
+    depts = ["CS", "ECON", "MATH", "BIO"]
+
+    registrations = []
+    for _ in range(num_registrations):
+        name = random.choice(student_names)
+        course = random.choice(courses)
+        dept = random.choice(depts)
+        grade = random.randint(60, 100)
+        registrations.append((name, course, dept, grade))
+
+    cursor.executemany("INSERT INTO Registration (name, course, dept, grade) VALUES (?, ?, ?, ?);", registrations)
+    conn.commit()
+    return conn
+
+def init_toy_student_queries():
     conn = create_toy_database()
+    student_correct_query = """
+        SELECT s.name, s.major
+        FROM Student s, Registration r
+        WHERE s.name = r.name AND r.dept = 'CS'
+        EXCEPT
+        SELECT s.name, s.major
+        FROM Student s, Registration r1, Registration r2
+        WHERE s.name = r1.name AND s.name = r2.name
+        AND r1.course <> r2.course
+        AND r1.dept = 'CS' AND r2.dept = 'CS';
+    """
+    student_test_query = """
+        SELECT s.name, s.major
+        FROM Student s, Registration r
+        WHERE s.name = r.name AND r.dept = 'CS';
+    """
+    return conn, student_correct_query, student_test_query
+
+def init_random_student_queries():
+    conn = create_random_student_dataset()
     student_correct_query = """
         SELECT s.name, s.major
         FROM Student s, Registration r
@@ -188,18 +249,25 @@ def init_employee_queries():
     return conn, correct_query, test_query
 
 if __name__ == "__main__":
-    print("Example 1: Student Toy DataSet")
-    conn, correct_query, test_query = init_student_queries()
-    solver = SPJUDSolver(conn, correct_query, test_query)
-    solver.find_smallest_counterexample()
+    flag = input("pick a num:")
+    if flag == "1":
+        print("Example: Student Random DataSet")
+        conn, correct_query, test_query = init_random_student_queries()
+        solver = SPJUDSolver(conn, correct_query, test_query)
+        solver.find_smallest_counterexample()
+    elif flag == "2":
+        print("Example: Employee Toy DataSet")
+        conn, correct_query, test_query = init_employee_queries()
+        solver = SPJUDSolver(conn, correct_query, test_query)
+        solver.find_smallest_counterexample()
+    else:
+        print("Example: Student Toy DataSet")
+        conn, correct_query, test_query = init_toy_student_queries()
+        solver = SPJUDSolver(conn, correct_query, test_query)
+        solver.find_smallest_counterexample()
 
-    print("Example 2: Employee Toy DataSet")
 
-    conn, correct_query, test_query = init_employee_queries()
-    solver = SPJUDSolver(conn, correct_query, test_query)
-    solver.find_smallest_counterexample()
 
-    print("Example 3: Student Random DataSet")
 
 
 
