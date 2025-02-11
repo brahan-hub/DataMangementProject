@@ -1,213 +1,110 @@
-# import sqlite3
-# import random
-# import networkx as nx
-# import matplotlib.pyplot as plt
-# from z3 import Solver, Bool, Or, sat
-#
-#
-# def create_toy_database():
-#     conn = sqlite3.connect(":memory:")  # Use in-memory DB for testing
-#     cursor = conn.cursor()
-#
-#     # Create tables
-#     cursor.execute("""CREATE TABLE Student (
-#                         name TEXT PRIMARY KEY,
-#                         major TEXT);""")
-#
-#     cursor.execute("""CREATE TABLE Registration (
-#                         name TEXT,
-#                         course TEXT,
-#                         dept TEXT,
-#                         grade INTEGER,
-#                         FOREIGN KEY(name) REFERENCES Student(name));""")
-#
-#     # Insert data into Student table
-#     students = [
-#         ('Mary', 'CS'),
-#         ('John', 'ECON'),
-#         ('Jesse', 'CS')
-#     ]
-#     cursor.executemany("INSERT INTO Student (name, major) VALUES (?, ?);", students)
-#
-#     # Insert data into Registration table
-#     registrations = [
-#         ('Mary', '216', 'CS', 100),
-#         ('Mary', '230', 'CS', 75),
-#         ('Mary', '208D', 'ECON', 95),
-#         ('John', '316', 'CS', 90),
-#         ('John', '208D', 'ECON', 88),
-#         ('Jesse', '216', 'CS', 95),
-#         ('Jesse', '316', 'CS', 90),
-#         ('Jesse', '330', 'CS', 85),
-#     ]
-#     cursor.executemany("INSERT INTO Registration (name, course, dept, grade) VALUES (?, ?, ?, ?);", registrations)
-#
-#     conn.commit()
-#     return conn
-#
-# # Random dataset generator with user input
-# def generate_random_toy_database():
-#     print("\n📌 Customize Your Dataset:")
-#     num_students = int(input("🔹 Enter number of students: "))
-#     num_registrations = int(input("🔹 Enter number of registrations: "))
-#     save_db = input("🔹 Save dataset to toy_dataset.db? (yes/no): ").strip().lower() == "yes"
-#
-#     conn = sqlite3.connect(":memory:")  # Use in-memory DB for testing
-#     cursor = conn.cursor()
-#
-#     # Create tables
-#     cursor.execute("""CREATE TABLE Student (
-#                         name TEXT PRIMARY KEY,
-#                         major TEXT);""")
-#
-#     cursor.execute("""CREATE TABLE Registration (
-#                         name TEXT,
-#                         course TEXT,
-#                         dept TEXT,
-#                         grade INTEGER,
-#                         FOREIGN KEY(name) REFERENCES Student(name));""")
-#
-#     # Generate random student names
-#     student_names = [f"Student_{i}" for i in range(num_students)]
-#     majors = ["CS", "ECON", "MATH", "BIO"]
-#
-#     # Insert random students
-#     students = [(name, random.choice(majors)) for name in student_names]
-#     cursor.executemany("INSERT INTO Student (name, major) VALUES (?, ?);", students)
-#
-#     # Generate random registrations
-#     courses = ["101", "202", "303", "404", "216", "230", "316", "330"]
-#     depts = ["CS", "ECON", "MATH", "BIO"]
-#
-#     registrations = []
-#     for _ in range(num_registrations):
-#         name = random.choice(student_names)
-#         course = random.choice(courses)
-#         dept = random.choice(depts)
-#         grade = random.randint(60, 100)
-#         registrations.append((name, course, dept, grade))
-#
-#     cursor.executemany("INSERT INTO Registration (name, course, dept, grade) VALUES (?, ?, ?, ?);", registrations)
-#
-#     conn.commit()
-#
-#     if save_db:
-#         with open("toy_dataset.db", "wb") as f:
-#             f.write(conn.iterdump())
-#
-#     return conn
-#
-#
-# # Smallest Counterexample Finder Class
-# class SmallestCounterexampleFinder:
-#     def __init__(self, conn):
-#         self.conn = conn
-#         self.cursor = conn.cursor()
-#
-#     def execute_query(self, query):
-#         """Executes a given SQL query and returns the result."""
-#         self.cursor.execute(query)
-#         return self.cursor.fetchall()
-#
-#     def compute_how_provenance(self, q1_result, q2_result):
-#         """
-#         Computes Boolean how-provenance expressions for tuples that differ.
-#         Also checks for tuples in Q2(D) that are not in Q1(D).
-#         """
-#         provenance = {}
-#
-#         # Check for tuples in Q1(D) that are missing in Q2(D)
-#         for row in q1_result:
-#             if row not in q2_result:
-#                 provenance[row] = Bool(f"p_{hash(row)}")
-#
-#         # Check for tuples in Q2(D) that are missing in Q1(D)
-#         for row in q2_result:
-#             if row not in q1_result:
-#                 provenance[row] = Bool(f"p_{hash(row)}")
-#
-#         return provenance
-#
-#     def encode_constraints(self, provenance):
-#         """Encodes how-provenance expressions into Boolean constraints for the SMT solver."""
-#         solver = Solver()
-#         if provenance:
-#             constraint = Or([p for p in provenance.values()])
-#             solver.add(constraint)
-#         return solver
-#
-#     def find_smallest_counterexample(self, solver, provenance):
-#         """Uses an SMT solver to find the minimal set of tuples that cause Q1 ≠ Q2."""
-#         if solver.check() == sat:
-#             model = solver.model()
-#             smallest_example = [t for t, p in provenance.items() if model[p] == True]
-#             return smallest_example
-#         return None
-#
-#     def visualize_provenance(self, provenance):
-#         """Creates a visualization of the provenance graph using networkx & matplotlib."""
-#         G = nx.DiGraph()
-#         for key, value in provenance.items():
-#             G.add_node(str(key), label=str(key))
-#             G.add_edge("Database", str(key))  # Connect database to the tuples
-#
-#         plt.figure(figsize=(10, 6))
-#         pos = nx.spring_layout(G)
-#         labels = nx.get_node_attributes(G, "label")
-#         nx.draw(G, pos, with_labels=True, node_size=3000, node_color="skyblue", font_size=10, font_weight="bold")
-#         nx.draw_networkx_labels(G, pos, labels)
-#         plt.title("Provenance Graph")
-#         plt.show()
-#
-#     def run(self, q1, q2):
-#         """Main method to compute the smallest counterexample and visualize provenance."""
-#         q1_result = self.execute_query(q1)
-#         q2_result = self.execute_query(q2)
-#         print("✅ Q1 (Correct Query) Result:", q1_result)
-#         print("❌ Q2 (Incorrect Query) Result:", q2_result)
-#
-#         provenance = self.compute_how_provenance(q1_result, q2_result)
-#         if not provenance:
-#             print("⚠️ No differences found! Check queries.")
-#             return None
-#
-#         solver = self.encode_constraints(provenance)
-#         counterexample = self.find_smallest_counterexample(solver, provenance)
-#
-#         print("\n🔍 Smallest Counterexample Found:", counterexample)
-#         # self.visualize_provenance(provenance)
-#
-#         return counterexample
-#
-#
-# # Define the queries
-# Q1 = """SELECT s.name, s.major
-#         FROM Student s, Registration r
-#         WHERE s.name = r.name AND r.dept = 'CS'
-#         EXCEPT
-#         SELECT s.name, s.major
-#         FROM Student s, Registration r1, Registration r2
-#         WHERE s.name = r1.name AND s.name = r2.name
-#         AND r1.course <> r2.course AND r1.dept = 'CS' AND r2.dept = 'CS';"""
-#
-# Q2 = """SELECT DISTINCT s.name, s.major
-#         FROM Student s, Registration r
-#         WHERE s.name = r.name AND r.dept = 'CS';"""
-#
-# # Run the program
-# if __name__ == "__main__":
-#     flag = input("pick a num")
-#     conn = create_toy_database()
-#     if flag == "1":
-#         conn = generate_random_toy_database(num_students=10, num_registrations=20, save_db=False)
-#     finder = SmallestCounterexampleFinder(conn)
-#     counterexample = finder.run(Q1, Q2)
-# # Run the program
-#
+from z3 import Solver, Bool, And, Or, Not, sat
 import sqlite3
 import random
-import pandas as pd
-from z3 import Solver, Bool, Or, sat
+
+
+class SPJUDSolver:
+    def __init__(self, conn, correct_query, test_query):
+        self.conn = conn
+        self.correct_query = correct_query
+        self.test_query = test_query
+
+    def execute_query(self, query):
+        cursor = self.conn.cursor()
+        cursor.execute(query)
+        return cursor.fetchall()
+
+    def get_differentiating_tuples(self):
+        """ Finds tuples present in Q1 but not in Q2, and vice versa."""
+        q1_results = set(self.execute_query(self.correct_query))
+        q2_results = set(self.execute_query(self.test_query))
+
+        diff_tuples = q1_results.symmetric_difference(q2_results)
+        return list(diff_tuples)
+
+    def compute_provenance(self, diff_tuple):
+        """ Generates a boolean formula representing how-provenance for diff_tuple."""
+        provenance_expr = []
+        for i, value in enumerate(diff_tuple):
+            provenance_expr.append(f"t{i + 1}")
+        prv_t = Or(*[Bool(p) for p in provenance_expr])
+        print(f"Prv(t) for {diff_tuple}: {prv_t}")
+        return prv_t
+
+    def solve_min_witness(self, prv_expr):
+        """ Uses SMT solver to find the smallest witness."""
+        solver = Solver()
+        solver.add(prv_expr)
+        solver.push()
+        min_witness = None
+
+        for _ in range(10):  # Run multiple times for different solutions
+            if solver.check() == sat:
+                model = solver.model()
+                witness_set = [str(v) for v in model if model[v]]
+                print(f"Found witness: {witness_set}")
+                if min_witness is None or len(witness_set) < len(min_witness):
+                    min_witness = witness_set
+                solver.add(Not(And(*[Bool(v) for v in witness_set])))
+            else:
+                break
+
+        return min_witness
+
+    def find_smallest_counterexample(self):
+        """ Optimized approach for finding the smallest counterexample."""
+        diff_tuples = self.get_differentiating_tuples()
+        print(f"Differentiating tuples: {diff_tuples}")
+
+        min_counterexample = None
+        for diff_tuple in diff_tuples:
+            prv_expr = self.compute_provenance(diff_tuple)
+            witness = self.solve_min_witness(prv_expr)
+
+            if witness and (min_counterexample is None or len(witness) < len(min_counterexample)):
+                min_counterexample = witness
+
+        print(f"Smallest Counterexample: {min_counterexample}")
+        return min_counterexample
+
+
+def create_another_dataset():
+    conn = sqlite3.connect(":memory:")  # Use in-memory DB for testing
+    cursor = conn.cursor()
+
+    # Create tables
+    cursor.execute("""CREATE TABLE Employee (
+                        emp_id INTEGER PRIMARY KEY,
+                        name TEXT,
+                        department TEXT);""")
+
+    cursor.execute("""CREATE TABLE Salary (
+                        emp_id INTEGER,
+                        amount INTEGER,
+                        year INTEGER,
+                        FOREIGN KEY(emp_id) REFERENCES Employee(emp_id));""")
+
+    # Insert data into Employee table
+    employees = [
+        (1, 'Alice', 'HR'),
+        (2, 'Bob', 'Finance'),
+        (3, 'Charlie', 'Engineering')
+    ]
+    cursor.executemany("INSERT INTO Employee (emp_id, name, department) VALUES (?, ?, ?);", employees)
+
+    # Insert data into Salary table
+    salaries = [
+        (1, 60000, 2022),
+        (2, 75000, 2022),
+        (3, 80000, 2022),
+        (1, 65000, 2023),
+        (2, 78000, 2023),
+        (3, 85000, 2023)
+    ]
+    cursor.executemany("INSERT INTO Salary (emp_id, amount, year) VALUES (?, ?, ?);", salaries)
+
+    conn.commit()
+    return conn
 
 
 def create_toy_database():
@@ -251,160 +148,58 @@ def create_toy_database():
     return conn
 
 
-def generate_random_toy_database():
-    """Generates a random toy dataset based on user input."""
-    print("\n📌 Customize Your Dataset:")
-    num_students = int(input("🔹 Enter number of students: "))
-    num_registrations = int(input("🔹 Enter number of registrations: "))
-    save_db = input("🔹 Save dataset to toy_dataset.db? (yes/no): ").strip().lower() == "yes"
-
-    conn = sqlite3.connect(":memory:")  # Use in-memory DB for testing
-    cursor = conn.cursor()
-
-    # Create tables
-    cursor.execute("""CREATE TABLE Student (
-                        name TEXT PRIMARY KEY,
-                        major TEXT);""")
-
-    cursor.execute("""CREATE TABLE Registration (
-                        name TEXT,
-                        course TEXT,
-                        dept TEXT,
-                        grade INTEGER,
-                        FOREIGN KEY(name) REFERENCES Student(name));""")
-
-    # Generate random student names
-    student_names = [f"Student_{i}" for i in range(num_students)]
-    majors = ["CS", "ECON", "MATH", "BIO"]
-
-    # Insert random students
-    students = [(name, random.choice(majors)) for name in student_names]
-    cursor.executemany("INSERT INTO Student (name, major) VALUES (?, ?);", students)
-
-    # Generate random registrations
-    courses = ["101", "202", "303", "404", "216", "230", "316", "330"]
-    depts = ["CS", "ECON", "MATH", "BIO"]
-
-    registrations = []
-    for _ in range(num_registrations):
-        name = random.choice(student_names)
-        course = random.choice(courses)
-        dept = random.choice(depts)
-        grade = random.randint(60, 100)
-        registrations.append((name, course, dept, grade))
-
-    cursor.executemany("INSERT INTO Registration (name, course, dept, grade) VALUES (?, ?, ?, ?);", registrations)
-
-    conn.commit()
-
-    if save_db:
-        with open("toy_dataset.db", "wb") as f:
-            f.write(conn.iterdump())
-
-    return conn
-
-
-class SmallestCounterexampleFinder:
-    def __init__(self, conn):
-        self.conn = conn
-        self.cursor = conn.cursor()
-
-    def execute_query(self, query):
-        """Executes a given SQL query and returns the result."""
-        self.cursor.execute(query)
-        return self.cursor.fetchall()
-
-    def compute_how_provenance(self, q1_result, q2_result):
-        """
-        Computes Boolean how-provenance expressions for tuples that differ.
-        Also checks for tuples in Q2(D) that are not in Q1(D).
-        """
-        provenance = {}
-
-        # Check for tuples in Q1(D) that are missing in Q2(D)
-        for row in q1_result:
-            if row not in q2_result:
-                provenance[row] = Bool(f"p_{hash(row)}")
-
-        # Check for tuples in Q2(D) that are missing in Q1(D)
-        for row in q2_result:
-            if row not in q1_result:
-                provenance[row] = Bool(f"p_{hash(row)}")
-
-        return provenance
-
-    def encode_constraints(self, provenance):
-        """Encodes how-provenance expressions into Boolean constraints for the SMT solver."""
-        solver = Solver()
-        if provenance:
-            constraint = Or([p for p in provenance.values()])
-            solver.add(constraint)
-        return solver
-
-    def find_smallest_counterexample(self, solver, provenance):
-        """Uses an SMT solver to find the minimal set of tuples that cause Q1 ≠ Q2."""
-        if solver.check() == sat:
-            model = solver.model()
-            smallest_example = [t for t, p in provenance.items() if model[p] == True]
-            return smallest_example
-        return None
-
-    def display_provenance_table(self, provenance):
-        """Displays provenance in a structured tabular format."""
-        if not provenance:
-            print("\n⚠️ No provenance information found.")
-            return
-
-        # Convert Z3 Boolean expressions to strings
-        data = [{"Tuple": str(key), "Provenance Variable": str(value)} for key, value in provenance.items()]
-        df = pd.DataFrame(data)
-
-        print("\n📜 How-Provenance Table:")
-        print(df.to_string(index=False))  # Alternative to to_markdown()
-
-    def run(self, q1, q2):
-        """Main method to compute the smallest counterexample and display provenance."""
-        q1_result = self.execute_query(q1)
-        q2_result = self.execute_query(q2)
-        print("✅ Q1 (Correct Query) Result:", q1_result)
-        print("❌ Q2 (Incorrect Query) Result:", q2_result)
-
-        provenance = self.compute_how_provenance(q1_result, q2_result)
-        if not provenance:
-            print("⚠️ No differences found! Check queries.")
-            return None
-
-        solver = self.encode_constraints(provenance)
-        counterexample = self.find_smallest_counterexample(solver, provenance)
-
-        print("\n🔍 Smallest Counterexample Found:", counterexample)
-        self.display_provenance_table(provenance)
-
-        return counterexample
-
-
-# Define the queries
-Q1 = """SELECT s.name, s.major
+def init_student_queries():
+    conn = create_toy_database()
+    student_correct_query = """
+        SELECT s.name, s.major
         FROM Student s, Registration r
         WHERE s.name = r.name AND r.dept = 'CS'
         EXCEPT
         SELECT s.name, s.major
         FROM Student s, Registration r1, Registration r2
         WHERE s.name = r1.name AND s.name = r2.name
-        AND r1.course <> r2.course AND r1.dept = 'CS' AND r2.dept = 'CS';"""
-
-Q2 = """SELECT DISTINCT s.name, s.major
+        AND r1.course <> r2.course
+        AND r1.dept = 'CS' AND r2.dept = 'CS';
+    """
+    student_test_query = """
+        SELECT s.name, s.major
         FROM Student s, Registration r
-        WHERE s.name = r.name AND r.dept = 'CS';"""
+        WHERE s.name = r.name AND r.dept = 'CS';
+    """
+    return conn, student_correct_query, student_test_query
 
-# Run the program
+def init_employee_queries():
+    conn = create_another_dataset()
+    correct_query = """
+        SELECT e.name, e.department 
+        FROM Employee e, Salary s
+        WHERE e.emp_id = s.emp_id AND s.year = 2023
+        EXCEPT
+        SELECT e.name, e.department
+        FROM Employee e, Salary s1, Salary s2
+        WHERE e.emp_id = s1.emp_id AND e.emp_id = s2.emp_id 
+        AND s1.year = 2022 AND s2.year = 2023 AND s1.amount < s2.amount;
+    """
+    test_query = """
+        SELECT e.name, e.department 
+        FROM Employee e, Salary s
+        WHERE e.emp_id = s.emp_id AND s.year = 2023;
+    """
+    return conn, correct_query, test_query
+
 if __name__ == "__main__":
-    flag = input("🔹 Pick dataset type (1: random, 2: toy example): ")
+    print("Example 1: Student Toy DataSet")
+    conn, correct_query, test_query = init_student_queries()
+    solver = SPJUDSolver(conn, correct_query, test_query)
+    solver.find_smallest_counterexample()
 
-    if flag == "1":
-        conn = generate_random_toy_database()
-    else:
-        conn = create_toy_database()
+    print("Example 2: Employee Toy DataSet")
 
-    finder = SmallestCounterexampleFinder(conn)
-    counterexample = finder.run(Q1, Q2)
+    conn, correct_query, test_query = init_employee_queries()
+    solver = SPJUDSolver(conn, correct_query, test_query)
+    solver.find_smallest_counterexample()
+
+    print("Example 3: Student Random DataSet")
+
+
+
