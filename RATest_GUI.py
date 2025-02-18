@@ -2,19 +2,16 @@
 """
 SPJUD Framework with a Tkinter UI in Three Modes:
 
-1. Pre-defined Examples
+1. Pre-defined Examples (each with distinct queries)
 2. User Entered JSON/SQL
 3. File Upload
 
-Changes:
-- Queries are displayed in a regular SQL-like format (via 'sql_str' attributes).
-- The "Random Student Queries" example includes UI fields for user input
-  (# of students, # of registrations).
-
 After computing, the UI displays:
-  - The correct query (in green)
-  - The wrong query (in red)
+  - The correct query in SQL format (in green)
+  - The wrong query in SQL format (in red)
   - The minimal counterexample output
+
+The GUI remains running until the user selects "Exit" from the File menu.
 """
 
 import random
@@ -64,9 +61,7 @@ class RATable:
     def __init__(self, table_name, rows, sql_str=None):
         self.table_name = table_name
         self.rows = rows
-        # We store a user-friendly SQL snippet for display.
         self.sql_str = sql_str or f"SELECT * FROM {table_name}"
-
     def eval(self, base_vars):
         result = []
         for i, row in enumerate(self.rows):
@@ -74,6 +69,8 @@ class RATable:
             row_copy['prov'] = ProvVar((self.table_name, i))
             result.append(row_copy)
         return result
+    def __repr__(self):
+        return f"RATable({self.table_name})"
 
 class RATableDynamic:
     """
@@ -82,7 +79,6 @@ class RATableDynamic:
     def __init__(self, table_name):
         self.table_name = table_name
         self.sql_str = f"SELECT * FROM {table_name} /* dynamic */"
-
     def eval(self, base_vars):
         try:
             rows = GLOBAL_DATABASE[self.table_name]
@@ -94,6 +90,8 @@ class RATableDynamic:
             row_copy['prov'] = ProvVar((self.table_name, i))
             result.append(row_copy)
         return result
+    def __repr__(self):
+        return f"RATableDynamic({self.table_name})"
 
 class RASelection:
     """Selection operator."""
@@ -101,18 +99,18 @@ class RASelection:
         self.predicate = predicate
         self.child = child
         self.sql_str = sql_str or "/* Selection */"
-
     def eval(self, base_vars):
         child_result = self.child.eval(base_vars)
         return [row for row in child_result if self.predicate(row)]
+    def __repr__(self):
+        return f"RASelection({self.sql_str})"
 
 class RAProjection:
     """Projection operator."""
     def __init__(self, attributes, child, sql_str=None):
         self.attributes = attributes
         self.child = child
-        self.sql_str = sql_str or f"/* Projection {attributes} */"
-
+        self.sql_str = sql_str or f"SELECT {', '.join(attributes)}"
     def eval(self, base_vars):
         child_result = self.child.eval(base_vars)
         proj_dict = {}
@@ -132,6 +130,8 @@ class RAProjection:
             new_row['prov'] = prov
             result.append(new_row)
         return result
+    def __repr__(self):
+        return f"RAProjection({self.attributes})"
 
 class RAJoin:
     """Join operator."""
@@ -139,8 +139,7 @@ class RAJoin:
         self.predicate = predicate
         self.left = left
         self.right = right
-        self.sql_str = sql_str or "/* Join ... ON ... */"
-
+        self.sql_str = sql_str or "JOIN ... ON ..."
     def eval(self, base_vars):
         left_result = self.left.eval(base_vars)
         right_result = self.right.eval(base_vars)
@@ -152,14 +151,15 @@ class RAJoin:
                     combined['prov'] = ProvAnd([l['prov'], r['prov']])
                     result.append(combined)
         return result
+    def __repr__(self):
+        return f"RAJoin({self.sql_str})"
 
 class RAUnion:
     """Union operator."""
     def __init__(self, left, right, sql_str=None):
         self.left = left
         self.right = right
-        self.sql_str = sql_str or "/* Union */"
-
+        self.sql_str = sql_str or "UNION"
     def eval(self, base_vars):
         left_result = self.left.eval(base_vars)
         right_result = self.right.eval(base_vars)
@@ -180,14 +180,15 @@ class RAUnion:
             else:
                 union_dict[key] = dict(row)
         return list(union_dict.values())
+    def __repr__(self):
+        return f"RAUnion({self.sql_str})"
 
 class RADifference:
     """Difference operator (EXCEPT)."""
     def __init__(self, left, right, sql_str=None):
         self.left = left
         self.right = right
-        self.sql_str = sql_str or "/* Difference (EXCEPT) */"
-
+        self.sql_str = sql_str or "EXCEPT"
     def eval(self, base_vars):
         left_result = self.left.eval(base_vars)
         right_result = self.right.eval(base_vars)
@@ -195,14 +196,15 @@ class RADifference:
             return tuple((k, row[k]) for k in sorted(row.keys()) if k != 'prov')
         right_keys = {row_key(r) for r in right_result}
         return [row for row in left_result if row_key(row) not in right_keys]
+    def __repr__(self):
+        return f"RADifference({self.sql_str})"
 
 class RARename:
     """Rename operator."""
     def __init__(self, rename_map, child, sql_str=None):
         self.rename_map = rename_map
         self.child = child
-        self.sql_str = sql_str or f"/* Rename {rename_map} */"
-
+        self.sql_str = sql_str or f"RENAME {rename_map}"
     def eval(self, base_vars):
         child_result = self.child.eval(base_vars)
         result = []
@@ -216,18 +218,14 @@ class RARename:
             new_row['prov'] = row['prov']
             result.append(new_row)
         return result
+    def __repr__(self):
+        return f"RARename({self.rename_map})"
 
 ###############################################
-# UTILITY: Convert RA Operator to SQL String
+# UTILITY: RA OPERATOR TO SQL STRING
 ###############################################
 
 def ra_to_sql_string(operator):
-    """
-    We simply read the 'sql_str' attribute if present.
-    For more complex queries (like joins with sub-queries),
-    you could recursively combine child 'sql_str's. Here we do a
-    best-effort approach.
-    """
     if hasattr(operator, "sql_str") and operator.sql_str:
         return operator.sql_str
     return "/* No SQL string available */"
@@ -235,18 +233,6 @@ def ra_to_sql_string(operator):
 ###############################################
 # WITNESS PROVENANCE & Z3 CONVERSION
 ###############################################
-
-class ProvOr(ProvExpr):
-    def __init__(self, children):
-        self.children = children
-    def __repr__(self):
-        return "(" + " ∨ ".join([str(c) for c in self.children]) + ")"
-
-class ProvAnd(ProvExpr):
-    def __init__(self, children):
-        self.children = children
-    def __repr__(self):
-        return "(" + " ∧ ".join([str(c) for c in self.children]) + ")"
 
 def compute_witness_provenance(q1_rows, q2_rows):
     def row_key(row):
@@ -283,8 +269,6 @@ def compute_witness_provenance(q1_rows, q2_rows):
     if not witness_exprs:
         return None
     return witness_exprs[0] if len(witness_exprs) == 1 else ProvOr(witness_exprs)
-
-from z3 import Optimize, If, Bool, And, Or, sat, IntVal
 
 def prov_to_z3(prov, base_vars):
     if isinstance(prov, ProvVar):
@@ -324,14 +308,52 @@ def find_minimal_counterexample(Q1, Q2, database):
         total = sum([1 for var in base_vars.values() if model.evaluate(var)])
         return counterexample, total
     else:
-        return None, None
+        return None, 0
 
 ###############################################
-# EXAMPLES
+# BUILDER FOR USER-ENTERED RA TREE (JSON)
+###############################################
+
+def build_ra_tree(obj):
+    op = obj.get("operator")
+    if op == "RATable":
+        return RATableDynamic(obj["table_name"])
+    elif op == "RASelection":
+        predicate_str = obj["predicate"]
+        instance = RASelection(lambda row: eval(predicate_str, {"row": row}), build_ra_tree(obj["child"]),
+                               sql_str=f"WHERE {predicate_str}")
+        return instance
+    elif op == "RAProjection":
+        return RAProjection(obj["attributes"], build_ra_tree(obj["child"]),
+                            sql_str=f"SELECT {', '.join(obj['attributes'])}")
+    elif op == "RAJoin":
+        predicate_str = obj["predicate"]
+        instance = RAJoin(lambda left, right: eval(predicate_str, {"left": left, "right": right}),
+                          build_ra_tree(obj["left"]), build_ra_tree(obj["right"]),
+                          sql_str=f"JOIN ... ON {predicate_str}")
+        return instance
+    elif op == "RADifference":
+        return RADifference(build_ra_tree(obj["left"]), build_ra_tree(obj["right"]),
+                            sql_str="EXCEPT")
+    elif op == "RARename":
+        return RARename(obj["rename_map"], build_ra_tree(obj["child"]),
+                        sql_str=f"RENAME {obj['rename_map']}")
+    else:
+        raise ValueError(f"Unknown operator: {op}")
+
+def parse_user_input(json_text):
+    data = json.loads(json_text)
+    global GLOBAL_DATABASE
+    GLOBAL_DATABASE = data["database"]
+    correct_tree = build_ra_tree(data["correct_query"])
+    wrong_tree = build_ra_tree(data["wrong_query"])
+    return GLOBAL_DATABASE, correct_tree, wrong_tree
+
+###############################################
+# PREDEFINED EXAMPLES (Mode 1) with Updated Queries
 ###############################################
 
 def init_toy_student_queries():
-    # Example DB
     students = [
         {"name": "Mary", "major": "CS"},
         {"name": "John", "major": "ECON"},
@@ -349,109 +371,509 @@ def init_toy_student_queries():
     ]
     database = {"Student": students, "Registration": registrations}
 
-    # Wrong Query: SELECT s.name, s.major FROM Student s JOIN Registration r ON s.name=r.name WHERE r.dept='CS'
+    wrong_sql = (
+        "SELECT s.name, s.major\n"
+        "FROM Student s\n"
+        "JOIN Registration r ON s.name = r.name\n"
+        "WHERE r.dept = 'CS';"
+    )
+    correct_sql = (
+        "SELECT s.name, s.major\n"
+        "FROM Student s\n"
+        "JOIN Registration r ON s.name = r.name\n"
+        "WHERE r.dept = 'CS'\n"
+        "EXCEPT\n"
+        "SELECT s.name, s.major\n"
+        "FROM Student s\n"
+        "JOIN Registration r1 ON s.name = r1.name\n"
+        "JOIN Registration r2 ON s.name = r2.name\n"
+        "WHERE r1.course <> r2.course AND r1.dept = 'CS' AND r2.dept = 'CS';"
+    )
+
     wrong_query = RAProjection(
         ['name','major'],
         RAJoin(
-            predicate=lambda s,r: s['name']==r['name'] and r['dept']=='CS',
+            predicate=lambda s, r: s['name'] == r['name'] and r['dept'] == 'CS',
             left=RATable("Student", students, sql_str="SELECT * FROM Student s"),
             right=RATable("Registration", registrations, sql_str="SELECT * FROM Registration r"),
-            sql_str="SELECT s.name, s.major FROM Student s JOIN Registration r ON s.name = r.name WHERE r.dept = 'CS'"
+            sql_str=wrong_sql
         ),
-        sql_str="SELECT s.name, s.major FROM (...)"
+        sql_str=wrong_sql
     )
 
-    # Correct Query = Wrong Query EXCEPT Students with multiple CS courses
-    # We'll build the "multi_course" subquery as a join of Student, Registration r1, Registration r2
-    reg1 = RARename({"name":"r1_name","course":"r1_course"}, RATable("Registration", registrations, sql_str="SELECT * FROM Registration r1"),
-                    sql_str="/* rename r1 */")
+    reg1 = RARename({"name": "r1_name", "course": "r1_course"},
+                    RATable("Registration", registrations, sql_str="SELECT * FROM Registration r1"),
+                    sql_str="/* Rename r1 */")
     join1 = RAJoin(
-        predicate=lambda s, r1: s['name']==r1['r1_name'],
+        predicate=lambda s, r: s['name'] == r['r1_name'],
         left=RATable("Student", students, sql_str="SELECT * FROM Student s2"),
         right=reg1,
         sql_str="JOIN Student s2, Registration r1 ON s2.name = r1.r1_name"
     )
-    reg2 = RARename({"name":"r2_name","course":"r2_course"}, RATable("Registration", registrations, sql_str="SELECT * FROM Registration r2"),
-                    sql_str="/* rename r2 */")
+    reg2 = RARename({"name": "r2_name", "course": "r2_course"},
+                    RATable("Registration", registrations, sql_str="SELECT * FROM Registration r2"),
+                    sql_str="/* Rename r2 */")
     join2 = RAJoin(
-        predicate=lambda row, r2: row['name']==r2['r2_name'] and row.get('r1_course')!=r2.get('r2_course'),
+        predicate=lambda row, r: row['name'] == r['r2_name'] and row.get('r1_course') != r.get('r2_course'),
         left=join1,
         right=reg2,
-        sql_str="JOIN r1, r2 ON (r1_course != r2_course)"
+        sql_str="JOIN r1, r2 ON (r1_course <> r2_course)"
     )
     multi_course = RAProjection(
         ['name','major'],
         join2,
-        sql_str="SELECT s.name, s.major FROM (join1, join2) WHERE multiple distinct CS courses"
+        sql_str="SELECT s.name, s.major FROM (join1, join2) WHERE student has multiple CS courses"
     )
     correct_query = RADifference(
         left=wrong_query,
         right=multi_course,
-        sql_str="( WrongQuery ) EXCEPT ( multi_course )"
+        sql_str=correct_sql
     )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
     return database, correct_query, wrong_query
 
-#
-# We'll define a "Random Student Queries" example that asks the user for #students, #registrations
-# in the UI. We'll handle that in the UI code below.
-#
-def init_random_student_queries(num_students=10, num_registrations=20):
-    # Build a random dataset
-    majors = ["CS","ECON","MATH","BIO"]
+
+def init_random_student_queries():
+    num_students = 10
+    num_registrations = 20
+    majors = ["CS", "ECON", "MATH", "BIO"]
     students = [{"name": f"Student_{i}", "major": random.choice(majors)} for i in range(num_students)]
-    courses = ["101","202","303","404","216","230","316","330"]
-    depts = ["CS","ECON","MATH","BIO"]
+    courses = ["101", "202", "303", "404", "216", "230", "316", "330"]
+    depts = ["CS", "ECON", "MATH", "BIO"]
     regs = []
     for _ in range(num_registrations):
         name = random.choice(students)["name"]
         course = random.choice(courses)
         dept = random.choice(depts)
-        grade = random.randint(60,100)
+        grade = random.randint(60, 100)
         regs.append({"name": name, "course": course, "dept": dept, "grade": grade})
     database = {"Student": students, "Registration": regs}
-
-    # We'll do a simpler "correct vs wrong" approach again:
-    # Wrong = SELECT s.name, s.major FROM Student s JOIN Registration r ON s.name=r.name WHERE r.dept='CS'
+    wrong_sql = (
+        "SELECT s.name, s.major\n"
+        "FROM Student s\n"
+        "JOIN Registration r ON s.name = r.name\n"
+        "WHERE r.dept = 'CS';"
+    )
     wrong_query = RAProjection(
         ['name','major'],
         RAJoin(
-            predicate=lambda s,r: s['name']==r['name'] and r['dept']=='CS',
+            predicate=lambda s, r: s['name'] == r['name'] and r['dept'] == 'CS',
             left=RATable("Student", students, sql_str="SELECT * FROM Student s"),
             right=RATable("Registration", regs, sql_str="SELECT * FROM Registration r"),
-            sql_str="SELECT s.name, s.major FROM Student s JOIN Registration r ON s.name = r.name WHERE r.dept = 'CS'"
+            sql_str=wrong_sql
         ),
-        sql_str="SELECT s.name, s.major FROM (...)"
+        sql_str=wrong_sql
     )
-
-    # Correct = Wrong EXCEPT students with multiple distinct CS courses
-    # We'll skip the full multi-course logic for brevity. Just do a difference on some condition:
+    correct_sql = (
+        "SELECT s.name, s.major\n"
+        "FROM Student s\n"
+        "JOIN Registration r ON s.name = r.name\n"
+        "WHERE r.dept = 'CS'\n"
+        "EXCEPT\n"
+        "SELECT s.name, s.major\n"
+        "FROM Student s\n"
+        "JOIN Registration r1 ON s.name = r1.name\n"
+        "JOIN Registration r2 ON s.name = r2.name\n"
+        "WHERE r1.course <> r2.course AND r1.dept = 'CS' AND r2.dept = 'CS';"
+    )
+    # For random student queries, use an empty fake subquery to simulate a difference.
+    fake = []
     correct_query = RADifference(
         left=wrong_query,
-        right=RATable("FakeSubQuery", [], sql_str="SELECT * FROM StudentsWithMultipleCS"),  # For demonstration
-        sql_str="( WrongQuery ) EXCEPT ( StudentsWithMultipleCS )"
+        right=RATable("FakeSubQuery", fake, sql_str="SELECT * FROM StudentsWithMultipleCS"),
+        sql_str=correct_sql
     )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
     return database, correct_query, wrong_query
 
+
 def init_employee_queries():
-    # Just re-use toy
-    return init_toy_student_queries()
+    employees = [
+        {"emp_id": 1, "name": "Alice", "department": "Sales"},
+        {"emp_id": 2, "name": "Bob", "department": "HR"},
+        {"emp_id": 3, "name": "Charlie", "department": "IT"}
+    ]
+    salaries = [
+        {"emp_id": 1, "year": 2022, "amount": 50000},
+        {"emp_id": 1, "year": 2023, "amount": 60000},  # Raise for Alice
+        {"emp_id": 2, "year": 2023, "amount": 55000},
+        {"emp_id": 3, "year": 2022, "amount": 70000},
+        {"emp_id": 3, "year": 2023, "amount": 65000}   # Decrease for Charlie
+    ]
+    database = {"Employee": employees, "Salary": salaries}
+    wrong_sql = (
+        "SELECT e.name, e.department\n"
+        "FROM Employee e\n"
+        "JOIN Salary s ON e.emp_id = s.emp_id\n"
+        "WHERE s.year = 2023;"
+    )
+    wrong_query = RAProjection(
+        ['name', 'department'],
+        RAJoin(
+            predicate=lambda e, s: e['emp_id'] == s['emp_id'] and s['year'] == 2023,
+            left=RATable("Employee", employees, sql_str="SELECT * FROM Employee e"),
+            right=RATable("Salary", salaries, sql_str="SELECT * FROM Salary s"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    # Fake subquery: only include employees with a raise.
+    # Make sure to project only the attributes 'name' and 'department'
+    raised_fake = [{"name": employees[0]["name"], "department": employees[0]["department"]}]
+    correct_sql = (
+        "SELECT e.name, e.department\n"
+        "FROM Employee e\n"
+        "JOIN Salary s ON e.emp_id = s.emp_id\n"
+        "WHERE s.year = 2023\n"
+        "EXCEPT\n"
+        "SELECT e.name, e.department\n"
+        "FROM Employee e\n"
+        "WHERE e.name IN (SELECT name FROM EmployeesWithRaise);"
+    )
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("EmployeesWithRaise", raised_fake, sql_str="SELECT name, department FROM EmployeesWithRaise"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+
 def init_library_queries():
-    return init_toy_student_queries()
+    books = [
+        {"book_id": 1, "title": "1984", "author": "Orwell"},
+        {"book_id": 2, "title": "Brave New World", "author": "Huxley"},
+        {"book_id": 3, "title": "Fahrenheit 451", "author": "Bradbury"}
+    ]
+    borrow_records = [
+        {"book_id": 1, "member": "Alice", "borrow_date": "2023-01-10"},
+        {"book_id": 1, "member": "Bob", "borrow_date": "2023-02-15"},
+        {"book_id": 2, "member": "Charlie", "borrow_date": "2023-03-20"},
+        {"book_id": 3, "member": "Dave", "borrow_date": "2023-04-25"},
+        {"book_id": 3, "member": "Eve", "borrow_date": "2023-05-05"}
+    ]
+    database = {"Books": books, "BorrowRecords": borrow_records}
+    wrong_sql = (
+        "SELECT b.title, b.author\n"
+        "FROM Books b\n"
+        "JOIN BorrowRecords br ON b.book_id = br.book_id;"
+    )
+    wrong_query = RAProjection(
+        ['title', 'author'],
+        RAJoin(
+            predicate=lambda b, br: b['book_id'] == br['book_id'],
+            left=RATable("Books", books, sql_str="SELECT * FROM Books b"),
+            right=RATable("BorrowRecords", borrow_records, sql_str="SELECT * FROM BorrowRecords br"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    # Fake subquery: assume "Brave New World" was borrowed only once.
+    fake = [{"title": "Brave New World", "author": "Huxley"}]
+    correct_sql = (
+        "SELECT b.title, b.author\n"
+        "FROM Books b\n"
+        "JOIN BorrowRecords br1 ON b.book_id = br1.book_id\n"
+        "JOIN BorrowRecords br2 ON b.book_id = br2.book_id\n"
+        "WHERE br1.member <> br2.member;"
+    )
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("BooksBorrowedOnce", fake, sql_str="SELECT title, author FROM BooksBorrowedOnce"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+
 def init_store_queries():
-    return init_toy_student_queries()
+    products = [
+        {"product_id": 1, "product_name": "Laptop", "category": "Electronics"},
+        {"product_id": 2, "product_name": "Headphones", "category": "Electronics"},
+        {"product_id": 3, "product_name": "Coffee Maker", "category": "Home"}
+    ]
+    orders = [
+        {"order_id": 101, "product_id": 1, "quantity": 5, "order_date": "2023-07-01"},
+        {"order_id": 102, "product_id": 1, "quantity": 12, "order_date": "2023-07-02"},
+        {"order_id": 103, "product_id": 2, "quantity": 8, "order_date": "2023-07-03"},
+        {"order_id": 104, "product_id": 2, "quantity": 9, "order_date": "2023-07-04"},
+        {"order_id": 105, "product_id": 3, "quantity": 20, "order_date": "2023-07-05"}
+    ]
+    database = {"Products": products, "Orders": orders}
+    wrong_sql = (
+        "SELECT p.product_id, p.product_name\n"
+        "FROM Products p\n"
+        "JOIN Orders o ON p.product_id = o.product_id\n"
+        "WHERE p.category = 'Electronics';"
+    )
+    wrong_query = RAProjection(
+        ['product_id', 'product_name'],
+        RAJoin(
+            predicate=lambda p, o: p['product_id'] == o['product_id'] and p['category'] == 'Electronics',
+            left=RATable("Products", products, sql_str="SELECT * FROM Products p"),
+            right=RATable("Orders", orders, sql_str="SELECT * FROM Orders o"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    # Fake subquery: assume only Laptop has orders with quantity >= 10.
+    fake = [{"product_id": 1, "product_name": "Laptop"}]
+    correct_sql = (
+        "SELECT p.product_id, p.product_name\n"
+        "FROM Products p\n"
+        "JOIN Orders o ON p.product_id = o.product_id\n"
+        "WHERE p.category = 'Electronics' AND o.quantity >= 10;"
+    )
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("HighQuantityOrders", fake, sql_str="SELECT product_id, product_name FROM HighQuantityOrders"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+
 def init_social_network_queries():
-    return init_toy_student_queries()
+    users = [
+        {"user_id": 1, "name": "Alice"},
+        {"user_id": 2, "name": "Bob"},
+        {"user_id": 3, "name": "Charlie"}
+    ]
+    friendships = [
+        {"user1": 1, "user2": 2},
+        {"user1": 2, "user2": 1},
+        {"user1": 2, "user2": 3}
+    ]
+    database = {"Users": users, "Friendships": friendships}
+    # Wrong query: return all users (simply project Users table)
+    wrong_sql = "SELECT u.user_id, u.name FROM Users u;"
+    wrong_query = RAProjection(
+        ['user_id', 'name'],
+        RATable("Users", users, sql_str="SELECT * FROM Users u"),
+        sql_str=wrong_sql
+    )
+    # Correct query: return only users with reciprocal friendship.
+    correct_sql = (
+        "SELECT u.user_id, u.name\n"
+        "FROM Users u\n"
+        "JOIN Friendships f1 ON u.user_id = f1.user1\n"
+        "JOIN Friendships f2 ON u.user_id = f2.user2\n"
+        "WHERE f1.user2 = f2.user1;"
+    )
+    # Fake subquery: assume only Alice has reciprocal friendship.
+    fake = [{"user_id": 1, "name": "Alice"}]
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("UsersWithReciprocal", fake, sql_str="SELECT user_id, name FROM UsersWithReciprocal"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return {"Users": users}, correct_query, wrong_query
+
+
 def init_ecommerce_reviews_queries():
-    return init_toy_student_queries()
+    products = [
+        {"product_id": 1, "product_name": "Laptop"},
+        {"product_id": 2, "product_name": "Smartphone"},
+        {"product_id": 3, "product_name": "Headphones"}
+    ]
+    reviews = [
+        {"review_id": 1, "product_id": 1, "rating": 5},
+        {"review_id": 2, "product_id": 1, "rating": 4},
+        {"review_id": 3, "product_id": 2, "rating": 3},
+        {"review_id": 4, "product_id": 3, "rating": 5}
+    ]
+    database = {"Products": products, "Reviews": reviews}
+    wrong_sql = (
+        "SELECT p.product_id, p.product_name\n"
+        "FROM Products p\n"
+        "JOIN Reviews r ON p.product_id = r.product_id\n"
+        "WHERE r.rating >= 4;"
+    )
+    wrong_query = RAProjection(
+        ['product_id', 'product_name'],
+        RAJoin(
+            predicate=lambda p, r: p['product_id'] == r['product_id'] and r['rating'] >= 4,
+            left=RATable("Products", products, sql_str="SELECT * FROM Products p"),
+            right=RATable("Reviews", reviews, sql_str="SELECT * FROM Reviews r"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    correct_sql = (
+        "SELECT p.product_id, p.product_name\n"
+        "FROM Products p\n"
+        "JOIN Reviews r1 ON p.product_id = r1.product_id\n"
+        "JOIN Reviews r2 ON p.product_id = r2.product_id\n"
+        "WHERE r1.rating >= 4 AND r2.rating >= 4 AND r1.review_id <> r2.review_id;"
+    )
+    # Fake subquery: assume only Laptop has two distinct reviews ≥ 4.
+    fake = [{"product_id": 1, "product_name": "Laptop"}]
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("ProductsWithMultipleReviews", fake, sql_str="SELECT product_id, product_name FROM ProductsWithMultipleReviews"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+
 def init_sensor_data_queries():
-    return init_toy_student_queries()
+    sensors = [
+        {"sensor_id": 1, "location": "Room 101"},
+        {"sensor_id": 2, "location": "Room 102"},
+        {"sensor_id": 3, "location": "Room 103"}
+    ]
+    readings = [
+        {"sensor_id": 1, "timestamp": "2023-01-01 10:00", "value": 85},
+        {"sensor_id": 1, "timestamp": "2023-01-01 11:00", "value": 90},
+        {"sensor_id": 2, "timestamp": "2023-01-01 10:30", "value": 75},
+        {"sensor_id": 3, "timestamp": "2023-01-01 12:00", "value": 80}
+    ]
+    database = {"Sensors": sensors, "Readings": readings}
+    wrong_sql = (
+        "SELECT s.sensor_id, s.location\n"
+        "FROM Sensors s\n"
+        "JOIN Readings r ON s.sensor_id = r.sensor_id\n"
+        "WHERE r.value >= 80;"
+    )
+    wrong_query = RAProjection(
+        ['sensor_id', 'location'],
+        RAJoin(
+            predicate=lambda s, r: s['sensor_id'] == r['sensor_id'] and r['value'] >= 80,
+            left=RATable("Sensors", sensors, sql_str="SELECT * FROM Sensors s"),
+            right=RATable("Readings", readings, sql_str="SELECT * FROM Readings r"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    correct_sql = (
+        "SELECT s.sensor_id, s.location\n"
+        "FROM Sensors s\n"
+        "JOIN Readings r1 ON s.sensor_id = r1.sensor_id\n"
+        "JOIN Readings r2 ON s.sensor_id = r2.sensor_id\n"
+        "WHERE r1.value >= 80 AND r2.value >= 80 AND r1.timestamp <> r2.timestamp;"
+    )
+    # Fake subquery: assume only Room 101 has two distinct high readings.
+    fake = [{"sensor_id": 1, "location": "Room 101"}]
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("SensorsWithMultipleHighReadings", fake, sql_str="SELECT sensor_id, location FROM SensorsWithMultipleHighReadings"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+
 def init_online_course_queries():
-    return init_toy_student_queries()
+    courses = [
+        {"course_id": 1, "course_name": "Intro to CS", "term": "Fall2023"},
+        {"course_id": 2, "course_name": "Calculus", "term": "Fall2023"},
+        {"course_id": 3, "course_name": "History", "term": "Fall2023"}
+    ]
+    enrollments = [
+        {"course_id": 1, "section": "A", "student_id": 101},
+        {"course_id": 1, "section": "B", "student_id": 102},
+        {"course_id": 2, "section": "A", "student_id": 103},
+        {"course_id": 3, "section": "A", "student_id": 104},
+        {"course_id": 3, "section": "A", "student_id": 105}
+    ]
+    database = {"Courses": courses, "Enrollments": enrollments}
+    wrong_sql = (
+        "SELECT c.course_id, c.course_name\n"
+        "FROM Courses c\n"
+        "JOIN Enrollments e ON c.course_id = e.course_id;"
+    )
+    wrong_query = RAProjection(
+        ['course_id', 'course_name'],
+        RAJoin(
+            predicate=lambda c, e: c['course_id'] == e['course_id'],
+            left=RATable("Courses", courses, sql_str="SELECT * FROM Courses c"),
+            right=RATable("Enrollments", enrollments, sql_str="SELECT * FROM Enrollments e"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    correct_sql = (
+        "SELECT c.course_id, c.course_name\n"
+        "FROM Courses c\n"
+        "JOIN Enrollments e1 ON c.course_id = e1.course_id\n"
+        "JOIN Enrollments e2 ON c.course_id = e2.course_id\n"
+        "WHERE e1.section <> e2.section;"
+    )
+    # Fake subquery: assume Calculus (course_id=2) is offered in a single section.
+    fake = [{"course_id": 2, "course_name": "Calculus"}]
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("CoursesWithSingleSection", fake, sql_str="SELECT course_id, course_name FROM CoursesWithSingleSection"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+
 def init_telecom_calls_queries():
-    return init_toy_student_queries()
+    subscribers = [
+        {"subscriber_id": 1, "name": "Alice"},
+        {"subscriber_id": 2, "name": "Bob"},
+        {"subscriber_id": 3, "name": "Charlie"}
+    ]
+    calls = [
+        {"call_id": 1, "caller_id": 1, "callee_id": 2},
+        {"call_id": 2, "caller_id": 1, "callee_id": 3},
+        {"call_id": 3, "caller_id": 2, "callee_id": 3},
+        {"call_id": 4, "caller_id": 3, "callee_id": 1}
+    ]
+    database = {"Subscribers": subscribers, "Calls": calls}
+    wrong_sql = (
+        "SELECT s.subscriber_id, s.name\n"
+        "FROM Subscribers s\n"
+        "JOIN Calls c ON s.subscriber_id = c.caller_id;"
+    )
+    wrong_query = RAProjection(
+        ['subscriber_id', 'name'],
+        RAJoin(
+            predicate=lambda s, c: s['subscriber_id'] == c['caller_id'],
+            left=RATable("Subscribers", subscribers, sql_str="SELECT * FROM Subscribers s"),
+            right=RATable("Calls", calls, sql_str="SELECT * FROM Calls c"),
+            sql_str=wrong_sql
+        ),
+        sql_str=wrong_sql
+    )
+    correct_sql = (
+        "SELECT s.subscriber_id, s.name\n"
+        "FROM Subscribers s\n"
+        "JOIN Calls c1 ON s.subscriber_id = c1.caller_id\n"
+        "JOIN Calls c2 ON s.subscriber_id = c2.caller_id\n"
+        "WHERE c1.callee_id <> c2.callee_id;"
+    )
+    # Fake subquery: assume only Alice made calls to more than one distinct callee.
+    fake = [{"subscriber_id": 1, "name": "Alice"}]
+    correct_query = RADifference(
+        left=wrong_query,
+        right=RATable("SubscribersWithMultipleCallees", fake, sql_str="SELECT subscriber_id, name FROM SubscribersWithMultipleCallees"),
+        sql_str=correct_sql
+    )
+    wrong_query.sql_str = wrong_sql
+    correct_query.sql_str = correct_sql
+    return database, correct_query, wrong_query
+
+###############################################
+# EXAMPLE MAPPING
+###############################################
 
 EXAMPLE_MAPPING = {
     "Toy Student Queries": init_toy_student_queries,
+    "Random Student Queries": init_random_student_queries,
     "Employee Queries": init_employee_queries,
     "Library Queries": init_library_queries,
     "Store Queries": init_store_queries,
@@ -460,19 +882,28 @@ EXAMPLE_MAPPING = {
     "Sensor Data Queries": init_sensor_data_queries,
     "Online Course Enrollment Queries": init_online_course_queries,
     "Telecom Call Records Queries": init_telecom_calls_queries,
-    # We'll handle "Random Student Queries" specially to prompt user input.
 }
 
 ###############################################
-# TKINTER UI
+# TKINTER USER INTERFACE (3 Modes: Pre-defined, User JSON, File Upload)
 ###############################################
 
 class SPJUDUI:
     def __init__(self, root):
         self.root = root
         self.root.title("SPJUD Minimal Counterexample Finder")
+        self.create_menu()
+        self.create_widgets()
 
-        self.notebook = ttk.Notebook(root)
+    def create_menu(self):
+        menu_bar = tk.Menu(self.root)
+        self.root.config(menu=menu_bar)
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        menu_bar.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Exit", command=self.root.quit)
+
+    def create_widgets(self):
+        self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill="both", expand=True)
 
         # Tab 1: Pre-defined Examples
@@ -490,24 +921,16 @@ class SPJUDUI:
         self.notebook.add(self.tab3, text="File Upload")
         self.create_tab_file_upload(self.tab3)
 
-        # Tab 4: Random Student Queries (with user input)
-        self.tab4 = ttk.Frame(self.notebook)
-        self.notebook.add(self.tab4, text="Random Student Queries")
-        self.create_tab_random_student(self.tab4)
-
     def create_tab_predefined(self, frame):
         frm = ttk.Frame(frame, padding="10")
         frm.pack(side="top", fill="x")
-
         ttk.Label(frm, text="Select Example:").grid(row=0, column=0, sticky="W")
         self.example_var = tk.StringVar(value="Toy Student Queries")
-        example_list = list(EXAMPLE_MAPPING.keys())
         self.example_combo = ttk.Combobox(frm, textvariable=self.example_var,
-                                          values=example_list, state="readonly", width=40)
+                                          values=list(EXAMPLE_MAPPING.keys()), state="readonly", width=40)
         self.example_combo.grid(row=0, column=1, padx=5, sticky="W")
         btn = ttk.Button(frm, text="Compute Minimal Counterexample", command=self.compute_predefined)
         btn.grid(row=0, column=2, padx=10)
-
         self.text_predef = tk.Text(frame, width=100, height=30)
         self.text_predef.pack(padx=10, pady=10)
         self.text_predef.tag_config("green", foreground="green")
@@ -520,19 +943,15 @@ class SPJUDUI:
         frm = ttk.Frame(frame, padding="10")
         frm.pack(side="top", fill="both", expand=True)
         ttk.Label(frm, text="Enter JSON (must include 'database', 'correct_query', 'wrong_query'):", wraplength=600).pack(anchor="w")
-
         self.text2_input = tk.Text(frm, width=100, height=15)
         self.text2_input.pack(padx=5, pady=5)
-
         btn = ttk.Button(frm, text="Compute Minimal Counterexample", command=self.compute_user_input)
         btn.pack(pady=5)
-
         ttk.Label(frm, text="Results:").pack(anchor="w")
         self.text2_output = tk.Text(frm, width=100, height=15)
         self.text2_output.pack(padx=5, pady=5)
         self.text2_output.tag_config("green", foreground="green")
         self.text2_output.tag_config("red", foreground="red")
-
         scrollbar2 = ttk.Scrollbar(frm, command=self.text2_output.yview)
         scrollbar2.pack(side="right", fill="y")
         self.text2_output.config(yscrollcommand=scrollbar2.set)
@@ -540,69 +959,29 @@ class SPJUDUI:
     def create_tab_file_upload(self, frame):
         frm = ttk.Frame(frame, padding="10")
         frm.pack(side="top", fill="both", expand=True)
-
         btn_upload = ttk.Button(frm, text="Upload JSON File", command=self.upload_file)
         btn_upload.pack(pady=5)
-
         ttk.Label(frm, text="File Content:").pack(anchor="w")
         self.text3_input = tk.Text(frm, width=100, height=10)
         self.text3_input.pack(padx=5, pady=5)
-
         btn_comp = ttk.Button(frm, text="Compute Minimal Counterexample", command=self.compute_file_input)
         btn_comp.pack(pady=5)
-
         ttk.Label(frm, text="Results:").pack(anchor="w")
         self.text3_output = tk.Text(frm, width=100, height=10)
         self.text3_output.pack(padx=5, pady=5)
         self.text3_output.tag_config("green", foreground="green")
         self.text3_output.tag_config("red", foreground="red")
-
         scrollbar3 = ttk.Scrollbar(frm, command=self.text3_output.yview)
         scrollbar3.pack(side="right", fill="y")
         self.text3_output.config(yscrollcommand=scrollbar3.set)
 
-    def create_tab_random_student(self, frame):
-        frm = ttk.Frame(frame, padding="10")
-        frm.pack(side="top", fill="both", expand=True)
-
-        # Let user specify # of students, # of registrations
-        ttk.Label(frm, text="Number of Students:").grid(row=0, column=0, sticky="W")
-        self.rand_students_var = tk.StringVar(value="10")
-        ttk.Entry(frm, textvariable=self.rand_students_var, width=10).grid(row=0, column=1, padx=5, sticky="W")
-
-        ttk.Label(frm, text="Number of Registrations:").grid(row=1, column=0, sticky="W")
-        self.rand_regs_var = tk.StringVar(value="20")
-        ttk.Entry(frm, textvariable=self.rand_regs_var, width=10).grid(row=1, column=1, padx=5, sticky="W")
-
-        btn_rand = ttk.Button(frm, text="Compute Minimal Counterexample", command=self.compute_random_student)
-        btn_rand.grid(row=2, column=0, columnspan=2, pady=5)
-
-        # Output area
-        self.text_random = tk.Text(frm, width=100, height=15)
-        self.text_random.grid(row=3, column=0, columnspan=3, padx=5, pady=5)
-        self.text_random.tag_config("green", foreground="green")
-        self.text_random.tag_config("red", foreground="red")
-
-        scrollbar4 = ttk.Scrollbar(frm, command=self.text_random.yview)
-        scrollbar4.grid(row=3, column=3, sticky="ns")
-        self.text_random.config(yscrollcommand=scrollbar4.set)
-
     ###############################################
-    # Displaying Queries in SQL
+    # Displaying Queries in SQL Format
     ###############################################
-
     def show_queries_in_sql(self, text_widget, correct_Q, wrong_Q):
-        """
-        Show the queries in a "SQL-like" format by reading the 'sql_str' attribute
-        from each top-level operator.
-        """
-        # For simplicity, we assume 'correct_Q' and 'wrong_Q' are top-level operators
-        # with a 'sql_str' attribute. For more complex RA trees, you might recursively
-        # combine child sql_str's.
         text_widget.insert(tk.END, "Correct Query (SQL):\n", "green")
         correct_sql = ra_to_sql_string(correct_Q)
         text_widget.insert(tk.END, correct_sql + "\n\n", "green")
-
         text_widget.insert(tk.END, "Wrong Query (SQL):\n", "red")
         wrong_sql = ra_to_sql_string(wrong_Q)
         text_widget.insert(tk.END, wrong_sql + "\n\n", "red")
@@ -618,22 +997,17 @@ class SPJUDUI:
                     text_widget.insert(tk.END, f"\nTable {table}:\n{table_str}\n")
 
     ###############################################
-    # Mode 1: Pre-defined
+    # Mode 1: Pre-defined Examples
     ###############################################
     def compute_predefined(self):
         self.text_predef.delete("1.0", tk.END)
         example_name = self.example_var.get()
-        if example_name == "Random Student Queries":
-            # This is handled in the new tab4, so skip here
-            self.text_predef.insert(tk.END, "Use the 'Random Student Queries' tab instead.\n")
-            return
         init_func = EXAMPLE_MAPPING.get(example_name)
         if not init_func:
             self.text_predef.insert(tk.END, "No such example.\n")
             return
         try:
             database, correct_Q, wrong_Q = init_func()
-            # Show queries in SQL
             self.show_queries_in_sql(self.text_predef, correct_Q, wrong_Q)
             ce, cost = find_minimal_counterexample(correct_Q, wrong_Q, database)
             self.display_counterexample(self.text_predef, ce, cost)
@@ -641,7 +1015,7 @@ class SPJUDUI:
             messagebox.showerror("Error", str(e))
 
     ###############################################
-    # Mode 2: User JSON
+    # Mode 2: User Entered JSON/SQL
     ###############################################
     def compute_user_input(self):
         self.text2_output.delete("1.0", tk.END)
@@ -650,19 +1024,12 @@ class SPJUDUI:
             data = json.loads(json_text)
             global GLOBAL_DATABASE
             GLOBAL_DATABASE = data["database"]
-
-            # We build RA trees from JSON but do not store 'sql_str' automatically.
-            # So we fallback to a minimal approach: "/* No SQL string available */"
             correct_Q = build_ra_tree(data["correct_query"])
             wrong_Q = build_ra_tree(data["wrong_query"])
-
-            # Show queries in "SQL" if any. Otherwise fallback:
             self.text2_output.insert(tk.END, "Correct Query (SQL):\n", "green")
             self.text2_output.insert(tk.END, ra_to_sql_string(correct_Q) + "\n\n", "green")
-
             self.text2_output.insert(tk.END, "Wrong Query (SQL):\n", "red")
             self.text2_output.insert(tk.END, ra_to_sql_string(wrong_Q) + "\n\n", "red")
-
             ce, cost = find_minimal_counterexample(correct_Q, wrong_Q, GLOBAL_DATABASE)
             self.display_counterexample(self.text2_output, ce, cost)
         except Exception as e:
@@ -672,7 +1039,8 @@ class SPJUDUI:
     # Mode 3: File Upload
     ###############################################
     def upload_file(self):
-        filename = filedialog.askopenfilename(title="Select JSON File", filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")])
+        filename = filedialog.askopenfilename(title="Select JSON File",
+                                              filetypes=[("JSON Files", "*.json"), ("All Files", "*.*")])
         if filename:
             try:
                 with open(filename, "r") as f:
@@ -689,40 +1057,21 @@ class SPJUDUI:
             data = json.loads(json_text)
             global GLOBAL_DATABASE
             GLOBAL_DATABASE = data["database"]
-
             correct_Q = build_ra_tree(data["correct_query"])
             wrong_Q = build_ra_tree(data["wrong_query"])
-
             self.text3_output.insert(tk.END, "Correct Query (SQL):\n", "green")
             self.text3_output.insert(tk.END, ra_to_sql_string(correct_Q) + "\n\n", "green")
-
             self.text3_output.insert(tk.END, "Wrong Query (SQL):\n", "red")
             self.text3_output.insert(tk.END, ra_to_sql_string(wrong_Q) + "\n\n", "red")
-
             ce, cost = find_minimal_counterexample(correct_Q, wrong_Q, GLOBAL_DATABASE)
             self.display_counterexample(self.text3_output, ce, cost)
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
-    ###############################################
-    # Mode 4: Random Student Queries with user input
-    ###############################################
-    def compute_random_student(self):
-        self.text_random.delete("1.0", tk.END)
-        try:
-            n_students = int(self.rand_students_var.get())
-            n_regs = int(self.rand_regs_var.get())
-            database, correct_Q, wrong_Q = init_random_student_queries(n_students, n_regs)
-            self.show_queries_in_sql(self.text_random, correct_Q, wrong_Q)
-            ce, cost = find_minimal_counterexample(correct_Q, wrong_Q, database)
-            self.display_counterexample(self.text_random, ce, cost)
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
 
 ###############################################
 # MAIN
 ###############################################
-
 def main():
     root = tk.Tk()
     app = SPJUDUI(root)
