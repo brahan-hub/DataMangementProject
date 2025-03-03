@@ -3,6 +3,14 @@ import sqlite3
 import random
 
 
+##########
+# step 1: Defining Query Inequivalence Using Witnesses: compute_witness_provenance(q1_rows, q2_rows)
+# step 2: Computing How-Provenance Expressions: eval() using RASelection, RAPProjection RaJoin
+# step 3: converting provnenecte to SAT\SMT solvers: prov_to_z3(prov, base_vars)
+# step 4: Solving the Constraint System: find_minimal_counterexample(Q1, Q2, database)
+# step 5: Returning the Minimal Counterexample:
+##########
+
 class SPJUDSolver:
     def __init__(self, conn, correct_query, test_query):
         self.conn = conn

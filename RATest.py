@@ -1,16 +1,3 @@
-#!/usr/bin/env python3
-"""
-SPJUD Framework with 10 Diverse Examples
-
-This program implements a provenance‐based approach for explaining differences
-between two SPJUD queries (Select, Project, Join, Union, Difference) using Z3
-optimization to find a minimal counterexample.
-
-Five examples (Examples 1-5) are similar to earlier toy datasets, while five
-new examples (Examples 6-10) generate random datasets of varying sizes (between
-100 and 100,000 tuples) and use different SPJUD query patterns.
-"""
-
 import random
 from z3 import Optimize, If, Bool, And, Or, sat, IntVal
 
